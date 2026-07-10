@@ -29,7 +29,7 @@ A second toolbar/menu group, **Text Adjust**, lets you tweak text you've already
 
 - **Nudge Left / Right / Up / Down** — moves the text 1mm along its own local orientation (not the global axes), so it works correctly even for text placed on an angled or rotated face.
 - **Text Bigger / Smaller** — grows or shrinks the text's `Size` property by 1mm per click.
-- **Next Font** — cycles through every font installed on your system (via `fc-list`), one click at a time.
+
 
 **How selection works for these:** click on *any* related object in the tree first — the `ShapeString` itself, its `Extrusion`, or even a `Fusion` it's been merged into — the tools will search downward automatically to find the actual text object to modify. No need to dig into the tree to find the exact ShapeString every time.
 
