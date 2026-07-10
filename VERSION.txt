@@ -1,0 +1,1 @@
+2026-07-09 build (4) — Depth and Resize buttons now grey out automatically when they wouldn't apply to whatever's currently selected (e.g. Depth greys out for flat/Annotation Text since it has no thickness by design), same pattern as how Text On Face greys out until a face is selected.

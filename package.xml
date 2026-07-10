@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no" ?>
+<package format="1" xmlns="https://wiki.freecad.org/Package_Metadata">
+  <name>TextWorkbench</name>
+  <description>Tools for creating text geometry in FreeCAD: flat text outlines, extruded/embossed 3D text, and text placed directly onto a picked face -- plus nudge, resize, and depth-adjustment tools for tweaking it afterward.</description>
+  <version>1.0.0</version>
+  <date>2026-07-08</date>
+  <maintainer email="REPLACE_WITH_YOUR_EMAIL@example.com">seeker</maintainer>
+  <author email="REPLACE_WITH_YOUR_EMAIL@example.com">seeker</author>
+  <license file="LICENSE">LGPL-2.1-or-later</license>
+  <url type="repository" branch="main">https://github.com/REPLACE_WITH_YOUR_USERNAME/TextWorkbench</url>
+  <url type="bugtracker">https://github.com/REPLACE_WITH_YOUR_USERNAME/TextWorkbench/issues</url>
+  <url type="readme">https://github.com/REPLACE_WITH_YOUR_USERNAME/TextWorkbench/blob/main/README.md</url>
+  <icon>Resources/icons/workbench_icon.svg</icon>
+  <pythonmin>3.8</pythonmin>
+  <content>
+    <workbench>
+      <name>Text Workbench</name>
+      <subdirectory>./</subdirectory>
+      <icon>Resources/icons/workbench_icon.svg</icon>
+      <classname>TextWorkbench</classname>
+    </workbench>
+  </content>
+</package>
