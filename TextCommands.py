@@ -219,7 +219,16 @@ def _nudge(direction):
             None, "Nudge Text", "The selected object doesn't have a Placement to move."
         )
         return
-    rotation = obj.Placement.Rotation
+
+    # Use the underlying ShapeString's rotation (if there is one buried in
+    # here) as the reference for "left/right/up/down" -- that's the object
+    # whose Placement was explicitly aligned to the face normal when it was
+    # created. This keeps nudging relative to the face even when you've
+    # selected the Extrusion or Fusion instead of the ShapeString itself,
+    # since those don't carry that face-alignment on their own Placement.
+    orientation_source = _find_shapestring(obj) or obj
+    rotation = orientation_source.Placement.Rotation
+
     local_x = rotation.multVec(App.Vector(1, 0, 0))
     local_y = rotation.multVec(App.Vector(0, 1, 0))
     delta = {
@@ -229,7 +238,33 @@ def _nudge(direction):
         "down": local_y * -NUDGE_STEP,
     }[direction]
     new_position = obj.Placement.Base + delta
-    obj.Placement = App.Placement(new_position, rotation)
+    obj.Placement = App.Placement(new_position, obj.Placement.Rotation)
+    App.ActiveDocument.recompute()
+
+
+def _rotate_90():
+    sel = Gui.Selection.getSelection()
+    if not sel:
+        QtGui.QMessageBox.warning(
+            None, "Rotate Text", "Select an object first (the text, its extrusion, or its fused part)."
+        )
+        return
+    obj = sel[0]
+    if not hasattr(obj, "Placement"):
+        QtGui.QMessageBox.warning(
+            None, "Rotate Text", "The selected object doesn't have a Placement to rotate."
+        )
+        return
+
+    # Spin around the face's own normal (the underlying ShapeString's local
+    # Z axis, since that's what was aligned to the face normal when it was
+    # created) so the text stays flush against the face while rotating
+    # in-plane, instead of tipping off the surface.
+    orientation_source = _find_shapestring(obj) or obj
+    normal_axis = orientation_source.Placement.Rotation.multVec(App.Vector(0, 0, 1))
+    spin = App.Rotation(normal_axis, 90)
+    new_rotation = spin.multiply(obj.Placement.Rotation)
+    obj.Placement = App.Placement(obj.Placement.Base, new_rotation)
     App.ActiveDocument.recompute()
 
 
@@ -652,6 +687,18 @@ class NudgeTextDown:
         _nudge("down")
 
 
+class RotateText90:
+    def GetResources(self):
+        return {"Pixmap": "rotate_90.svg", "MenuText": "Rotate 90°",
+                 "ToolTip": "Rotate the selected text 90 degrees, staying flush against its face"}
+
+    def IsActive(self):
+        return App.ActiveDocument is not None
+
+    def Activated(self):
+        _rotate_90()
+
+
 class TextBigger:
     def GetResources(self):
         return {"Pixmap": "zoom_in.svg", "MenuText": "Text Bigger",
@@ -854,6 +901,7 @@ Gui.addCommand("NudgeTextLeft", NudgeTextLeft())
 Gui.addCommand("NudgeTextRight", NudgeTextRight())
 Gui.addCommand("NudgeTextUp", NudgeTextUp())
 Gui.addCommand("NudgeTextDown", NudgeTextDown())
+Gui.addCommand("RotateText90", RotateText90())
 Gui.addCommand("TextBigger", TextBigger())
 Gui.addCommand("TextSmaller", TextSmaller())
 Gui.addCommand("DepthMore", DepthMore())

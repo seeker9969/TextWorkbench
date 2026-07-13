@@ -46,6 +46,7 @@ class TextWorkbench(Gui.Workbench):
             "NudgeTextRight",
             "NudgeTextUp",
             "NudgeTextDown",
+            "RotateText90",
             "TextBigger",
             "TextSmaller",
             "DepthMore",
