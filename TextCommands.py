@@ -155,18 +155,21 @@ def _fuse_into_target(text_solid, target_obj):
 # downward through the dependency tree for the underlying ShapeString.
 # ---------------------------------------------------------------------------
 
-def _find_shapestring(obj, visited=None):
-    if visited is None:
-        visited = set()
-    if obj.Name in visited:
-        return None
-    visited.add(obj.Name)
-    if obj.TypeId == "Draft::ShapeString" or hasattr(obj, "FontFile"):
-        return obj
-    for child in getattr(obj, "OutList", []):
-        found = _find_shapestring(child, visited)
-        if found is not None:
-            return found
+def _find_shapestring(start_obj):
+    """Locate the Draft::ShapeString connected to whatever's selected --
+    searches both children (OutList) and parents (InList), so it doesn't
+    matter which object in the chain you actually clicked on."""
+    visited = set()
+    queue = [start_obj]
+    while queue:
+        obj = queue.pop(0)
+        if obj.Name in visited:
+            continue
+        visited.add(obj.Name)
+        if obj.TypeId == "Draft::ShapeString" or hasattr(obj, "FontFile"):
+            return obj
+        queue.extend(getattr(obj, "OutList", []))
+        queue.extend(getattr(obj, "InList", []))
     return None
 
 
@@ -175,31 +178,6 @@ def _selected_shapestring():
     if not sel:
         return None
     return _find_shapestring(sel[0])
-
-
-_ALL_FONTS_CACHE = None
-
-
-def _get_all_fonts():
-    """Enumerate installed fonts via fc-list, cached for the session."""
-    global _ALL_FONTS_CACHE
-    if _ALL_FONTS_CACHE is not None:
-        return _ALL_FONTS_CACHE
-    fonts = []
-    try:
-        import subprocess
-        result = subprocess.run(
-            ["fc-list", "--format=%{file}\n"],
-            capture_output=True, text=True, timeout=5,
-        )
-        fonts = sorted(set(
-            line.strip() for line in result.stdout.splitlines()
-            if line.strip().lower().endswith((".ttf", ".otf"))
-        ))
-    except Exception:
-        fonts = []
-    _ALL_FONTS_CACHE = fonts
-    return fonts
 
 
 NUDGE_STEP = 1.0   # mm per click, along the text's own local axes
@@ -292,20 +270,23 @@ def _resize(bigger):
     )
 
 
-def _find_extrusion(obj, visited=None):
-    """Locate the Part::Extrusion object (the one with LengthFwd/depth) from
-    whatever's selected -- the Extrusion itself, or a Fusion containing it."""
-    if visited is None:
-        visited = set()
-    if obj.Name in visited:
-        return None
-    visited.add(obj.Name)
-    if hasattr(obj, "LengthFwd"):
-        return obj
-    for child in getattr(obj, "OutList", []):
-        found = _find_extrusion(child, visited)
-        if found is not None:
-            return found
+def _find_extrusion(start_obj):
+    """Locate the Part::Extrusion object (the one with LengthFwd/depth)
+    connected to whatever's selected -- searches both children (OutList)
+    and parents (InList). This matters because if you select the
+    ShapeString directly, its Extrusion is a *parent* of it, not a child,
+    so a children-only search would never find it."""
+    visited = set()
+    queue = [start_obj]
+    while queue:
+        obj = queue.pop(0)
+        if obj.Name in visited:
+            continue
+        visited.add(obj.Name)
+        if hasattr(obj, "LengthFwd"):
+            return obj
+        queue.extend(getattr(obj, "OutList", []))
+        queue.extend(getattr(obj, "InList", []))
     return None
 
 
@@ -349,29 +330,6 @@ def _resize_applicable():
         return True
     sel = Gui.Selection.getSelection()
     return bool(sel and hasattr(sel[0], "ViewObject") and hasattr(sel[0].ViewObject, "FontSize"))
-
-
-def _cycle_font():
-    ss = _selected_shapestring()
-    if ss is None:
-        QtGui.QMessageBox.warning(
-            None, "Next Font", "Select the text (or its fused part) first."
-        )
-        return
-    fonts = _get_all_fonts()
-    if not fonts:
-        QtGui.QMessageBox.warning(
-            None, "Next Font",
-            "Couldn't enumerate installed fonts (fc-list not available). "
-            "Use the font Browse button in the Task Panel instead.",
-        )
-        return
-    try:
-        idx = fonts.index(ss.FontFile)
-    except ValueError:
-        idx = -1
-    ss.FontFile = fonts[(idx + 1) % len(fonts)]
-    App.ActiveDocument.recompute()
 
 
 # ---------------------------------------------------------------------------
@@ -747,130 +705,6 @@ class DepthLess:
         _adjust_depth(bigger=False)
 
 
-class NextFont:
-    def GetResources(self):
-        return {"Pixmap": "next_font.svg", "MenuText": "Next Font",
-                 "ToolTip": "Cycle the selected text to the next installed font"}
-
-    def IsActive(self):
-        return App.ActiveDocument is not None
-
-    def Activated(self):
-        _cycle_font()
-
-
-class ChooseFontPanel:
-    """Task panel showing every installed font, each rendered in its own
-    typeface, so you can actually see what you're picking instead of
-    blindly clicking through them one at a time."""
-
-    def __init__(self, shapestring):
-        self.shapestring = shapestring
-        self.selected_font = shapestring.FontFile
-
-        self.form = QtGui.QWidget()
-        self.form.setWindowTitle("Choose Font")
-        layout = QtGui.QVBoxLayout(self.form)
-
-        layout.addWidget(QtGui.QLabel("Filter:"))
-        self.filter_edit = QtGui.QLineEdit()
-        self.filter_edit.textChanged.connect(self.apply_filter)
-        layout.addWidget(self.filter_edit)
-
-        self.list_widget = QtGui.QListWidget()
-        self.list_widget.setMinimumHeight(300)
-        layout.addWidget(self.list_widget)
-
-        hint = QtGui.QLabel("Loading previews may take a moment if you have many fonts installed.")
-        hint.setWordWrap(True)
-        layout.addWidget(hint)
-
-        self._font_ids = []  # keep application-font IDs alive/removable
-        self._populate(shapestring.String if hasattr(shapestring, "String") else "AaBbCc 123")
-
-        layout.addStretch()
-
-    def _populate(self, sample_text):
-        fonts = _get_all_fonts()
-        if not fonts:
-            self.list_widget.addItem("No fonts found (fc-list unavailable)")
-            return
-
-        current_row = 0
-        for i, font_path in enumerate(fonts):
-            family = None
-            try:
-                font_id = QtGui.QFontDatabase.addApplicationFont(font_path)
-                if font_id != -1:
-                    self._font_ids.append(font_id)
-                    families = QtGui.QFontDatabase.applicationFontFamilies(font_id)
-                    if families:
-                        family = families[0]
-            except Exception:
-                family = None
-
-            label = sample_text if sample_text.strip() else "AaBbCc 123"
-            filename = os.path.basename(font_path)
-            display_name = f"{family} ({filename})" if family else filename
-            item = QtGui.QListWidgetItem(f"{display_name}:  {label}")
-            item.setData(QtCore.Qt.UserRole, font_path)
-            if family:
-                item.setFont(QtGui.QFont(family, 13))
-            self.list_widget.addItem(item)
-
-            if font_path == self.selected_font:
-                current_row = i
-
-        if self.list_widget.count() > 0:
-            self.list_widget.setCurrentRow(current_row)
-
-    def apply_filter(self, text):
-        text = text.lower()
-        for i in range(self.list_widget.count()):
-            item = self.list_widget.item(i)
-            item.setHidden(text not in item.text().lower())
-
-    def getStandardButtons(self):
-        def _as_int(value):
-            try:
-                return int(value)
-            except TypeError:
-                return int(value.value)
-        return _as_int(QtGui.QDialogButtonBox.Ok) | _as_int(QtGui.QDialogButtonBox.Cancel)
-
-    def accept(self):
-        item = self.list_widget.currentItem()
-        if item is not None:
-            font_path = item.data(QtCore.Qt.UserRole)
-            if font_path:
-                self.shapestring.FontFile = font_path
-                App.ActiveDocument.recompute()
-        Gui.Control.closeDialog()
-        return True
-
-    def reject(self):
-        Gui.Control.closeDialog()
-        return True
-
-
-class ChooseFont:
-    def GetResources(self):
-        return {"Pixmap": "choose_font.svg", "MenuText": "Choose Font",
-                 "ToolTip": "Browse installed fonts with a live preview of each"}
-
-    def IsActive(self):
-        return App.ActiveDocument is not None
-
-    def Activated(self):
-        ss = _selected_shapestring()
-        if ss is None:
-            QtGui.QMessageBox.warning(
-                None, "Choose Font", "Select the text (or its fused part) first."
-            )
-            return
-        Gui.Control.showDialog(ChooseFontPanel(ss))
-
-
 class CreateAnnotationText:
     """Create a simple 2D annotation label (not real geometry)."""
 
@@ -906,6 +740,4 @@ Gui.addCommand("TextBigger", TextBigger())
 Gui.addCommand("TextSmaller", TextSmaller())
 Gui.addCommand("DepthMore", DepthMore())
 Gui.addCommand("DepthLess", DepthLess())
-Gui.addCommand("NextFont", NextFont())
-Gui.addCommand("ChooseFont", ChooseFont())
 Gui.addCommand("CreateAnnotationText", CreateAnnotationText())
